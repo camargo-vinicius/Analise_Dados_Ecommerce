@@ -3,16 +3,20 @@
 import kaggle
 from os import listdir 
 import pandas as pd
+import matplotlib.pyplot as plt
 
 #%%
 # listando os datasets disponiveis para download
 #!kaggle datasets files -d olistbr/brazilian-ecommerce
 
-# faz o download e o unzip de todos os arquivos na pasta do projeto
+# faz o download e o unzip de todos os arquivos na pasta do projeto para ter sempre os arquivos mais atualizados
 # !kaggle datasets download olistbr/brazilian-ecommerce --unzip
 
 #%%
+# setando pandas pra mostrar todas as colunas dos dfs
+pd.set_option('display.max_columns', None)
 
+#%%
 def eda_df(df_dict: dict):
     '''Função que recebe um dict de dataframes e percorre 
     mostrando algumas infos do df'''
@@ -22,8 +26,8 @@ def eda_df(df_dict: dict):
 
         print(f'(Linhas, cols) = {df.shape}\n')
 
-        print('05 primeiras linhas: \n')
-        display(df.head())
+        print('03 primeiras linhas: \n')
+        display(df.head(3))
 
         print(f'\nColunas: {df.columns}\n')
 
@@ -36,8 +40,8 @@ def eda_df(df_dict: dict):
         print(f'\nContagem de registros duplicados:\n{df.duplicated().sum()}')
 
         print(f'\nContagem de valores nulos:\n{df.isnull().sum()}')
-#%%
 
+#%%
 def list_columns(dict_df: dict) -> None:
     '''Função para listar as colunas de cada df'''
 
@@ -47,15 +51,40 @@ def list_columns(dict_df: dict) -> None:
         print(f'{df.columns}\n\n')
 
 #%%
-def drop_columns(dict_dataframes: dict) -> dict:
-    '''Função para receber um dicionario contendo
-    o nome dos dataframes e as colunas que serao excluidas 
+def drop_columns(df: pd.DataFrame, lista_colunas: list) -> dict:
+    '''Função para receber um dicionario contendo o nome dos dataframes e as colunas que serao excluidas 
     em cada um deles no formato de lista'''
 
-    pass
+    return df.drop(columns=lista_colunas)
 
 #%%
+def drop_nulls(df_original: pd.DataFrame) -> pd.DataFrame | None:
+    '''Função que avalia se droppando os nulos quantidade de linhas reduz mais de 5%.
+    Se sim, retorna None'''
+    
+    # faz uma copia do df
+    df = df_original.copy()
 
+    qtd_linhas_original = df_original.shape[0] # qtd de linhas antes do drop
+
+    df = df.dropna(subset=['order_approved_at', 
+                           'order_delivered_carrier_date', 
+                           'order_delivered_customer_date'
+                        ]
+                )
+    
+    qtd_linhas_depois = df.shape[0] # qtd de linhas após o drop dos null
+    
+    proporcao_droppada = round((qtd_linhas_depois / qtd_linhas_original - 1), 2)  
+
+    if proporcao_droppada <= .5:
+        print(f'Redução do dataset: {proporcao_droppada * 100}% - OK!')
+        return df 
+    else:
+        print(f'Redução do dataset: {proporcao_droppada * 100}% - NOK!')
+        return None
+
+#%%
 # listando todos os datasets baixados no diretorio atual (.csv)
 arquivos = [arquivo for arquivo in listdir() if arquivo.endswith('.csv')]
 
@@ -63,10 +92,11 @@ arquivos = [arquivo for arquivo in listdir() if arquivo.endswith('.csv')]
 # arquivo.split('_')[1:-1] serve para pegar todas as palavras que compoe o nome do arquivo exceto as palavras
 # "olist" e "dataset" (primeira (i = 0) e última palavra (i = -1)
 dict_dfs = {'_'.join(nome_arquivo.split('_')[1:-1]): pd.read_csv(nome_arquivo) for nome_arquivo in arquivos}
-dict_dfs
 
-# nao vamos usar geoloc pois os dados de cidade ja estao na base de customer
+#%%
+# nao vamos usar geoloc pois os dados de cidade ja estao na base de customer e category_name
 del dict_dfs['geolocation']
+del dict_dfs['category_name']
 
 #%%
 # iterando sobre cada df para fazer uma EDA em cada um deles
@@ -76,45 +106,27 @@ eda_df(df_dict=dict_dfs)
 # nome dos dataframes
 nome_dfs = list(dict_dfs.keys())
 nome_dfs
-#%%
-# lista as colunas existentes no df
-list_columns(dict_dfs)
-#%%
-# lista de colunas para droppar em cada df
-dict_drop_columns = {
-                    'customers': ['customer_unique_id'],
-                    'order_payments': ['payment_sequential', 'payment_installments']
-
-}
 
 #%%
-#%%
-df_customer = dict_dfs['customers']
-df_customer.head()
-#%%
-
-# df_customer.query('customer_id != customer_unique_id')
+# droppando algumas colunas da tabela de produtos
+df_products = drop_columns(dict_dfs['products'], ['product_name_lenght', 'product_description_lenght', 'product_photos_qty', 'product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm'])
 
 #%%
-df_orders = dict_dfs['orders']
-condicao = df_orders['order_delivered_customer_date'].isnull()
-df_orders[condicao]
-
-# #%%
-# # merge
-# df_merge = df_orders.merge(right=df_customer, how='inner', on='customer_id')
+# armazenando cada df numa variavel
+df_order_items = dict_dfs['order_items']
+df_order_payms = dict_dfs['order_payments']
+df_order_rvw = dict_dfs['order_reviews']
 
 #%%
-
-df_items = dict_dfs['order_items']
-condicao = df_items['order_id'].duplicated()
-
-df_items[condicao]
+# checando nulls de orders
+dict_dfs['orders'].isnull().sum()
 
 #%%
-df_items.query("order_id == '683bf306149bb869980b68d48a1bd6ab'")
+# droppando as linhas com qualquer registro null de orders
+df_orders = drop_nulls(dict_dfs['orders'])
 
-#%%
-df_payment = dict_dfs['order_payments']
-condicao = df_payment['order_id'].duplicated()
-df_payment.query("order_id == '683bf306149bb869980b68d48a1bd6ab'")
+# checando após o drop
+df_orders.isnull().sum()
+
+# percorrer todos os dataframes, checando suas colunas com valores nulls e fazer o drop todos 
+# de uma vez se possível
